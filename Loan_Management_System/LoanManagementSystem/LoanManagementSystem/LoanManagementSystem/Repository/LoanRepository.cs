@@ -106,31 +106,54 @@ namespace LoanManagementSystem.Repository
                 using (SqlConnection connection = DBConnUtil.GetConnection())
                 {
                     connection.Open();
-                    string query = "SELECT LoanStatus FROM Loan WHERE LoanID = @LoanID";
-                    using (SqlCommand command = new SqlCommand(query, connection))
-                    {
-                        command.Parameters.AddWithValue("@LoanID", loanId);
-                        string loanStatus = (string)command.ExecuteScalar();
 
-                        if (loanStatus == null)
+                    string creditScoreQuery = @"
+                SELECT c.CreditScore 
+                FROM Loan l
+                INNER JOIN Customer c ON l.CustomerID = c.CustomerID
+                WHERE l.LoanID = @LoanID";
+                    int creditScore;
+
+                    using (SqlCommand creditScoreCommand = new SqlCommand(creditScoreQuery, connection))
+                    {
+                        creditScoreCommand.Parameters.AddWithValue("@LoanID", loanId);
+                        object result = creditScoreCommand.ExecuteScalar();
+
+                        if (result == null)
                         {
-                            throw new InvalidLoanException("Loan not found.");
+                            throw new InvalidLoanException("Loan not found or customer information is missing.");
                         }
 
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($"Loan Status: {loanStatus}");
-                        Console.ResetColor();
+                        creditScore = Convert.ToInt32(result);
                     }
+
+                    string loanStatus = creditScore > 650 ? "Approved" : "Rejected";
+
+                    if (creditScore > 650)
+                    {
+                        string updateStatusQuery = "UPDATE Loan SET LoanStatus = @LoanStatus WHERE LoanID = @LoanID";
+                        using (SqlCommand updateCommand = new SqlCommand(updateStatusQuery, connection))
+                        {
+                            updateCommand.Parameters.AddWithValue("@LoanStatus", loanStatus);
+                            updateCommand.Parameters.AddWithValue("@LoanID", loanId);
+                            updateCommand.ExecuteNonQuery();
+                        }
+                    }
+
+                    Console.ForegroundColor = loanStatus == "Approved" ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.WriteLine($"Loan Status: {loanStatus} ");
+                    Console.ResetColor();
                 }
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error fetching loan status: {ex.Message}");
+                Console.WriteLine($"Error processing loan status: {ex.Message}");
                 Console.ResetColor();
                 throw;
             }
         }
+
 
         public decimal CalculateEMI(int loanId)
         {
